@@ -1,0 +1,38 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: eks-demo
+  region: ap-northeast-2
+
+vpc:
+  subnets:
+    private:
+      ap-northeast-2a:
+        id: subnet-051a85f3c957c2868
+      ap-northeast-2b:
+        id: subnet-03b5b3a35a97b8dda
+      ap-northeast-2c:
+        id: subnet-0e2b7e593ea6961e6
+
+managedNodeGroups:
+  - name: eks-worker
+    instanceType: t3.medium
+    instanceName: eks-worker
+    privateNetworking: true
+
+    #autoscaling
+    minSize: 1
+    maxSize: 3
+    desiredCapacity: 1
+
+    ssh:
+      allow: true
+      publicKeyName: eks-kay
+
+    #volumn
+    volumeSize: 20
+    volumeType: gp2
+
+    labels: {role: worker}
+    tags:
+      nodegroup-role: worker
