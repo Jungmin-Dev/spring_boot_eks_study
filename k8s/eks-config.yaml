@@ -6,7 +6,7 @@ metadata:
 vpc:
   id: vpc-0bb8a03d37f060afa # VPC ID를 붙여넣습니다.
   cidr: 192.168.0.0/16
-  securityGroup: vpc-0bb8a03d37f060afa # EC2 보안그룹에서 Control Plane Security Group의 ID를 붙여넣습니다.
+  securityGroup: sg-0388a373d8be0d1ee # EC2 보안그룹에서 Control Plane Security Group의 ID를 붙여넣습니다.
   subnets:
     private:
       ap-northeast-2a:
@@ -36,5 +36,25 @@ managedNodeGroups:
         albIngress: true  # albIngress에 대한 권한 추가
         cloudWatch: true # cloudWatch에 대한 권한 추가
         autoScaler: true # auto scaling에 대한 권한 추가
-    instanceName: EKS-WORKER
     volumeSize: 20 # 노드의 볼륨 사이즈
+
+  - name: EKS-PRODUCTION-NODE-SPOT
+    instanceType: t3.small
+    spot: true
+    availabilityZones:
+      - ap-northeast-2a
+      - ap-northeast-2b
+    privateNetworking: true # privateAccess: true 인 경우 true로 설정해야 합니다.
+    desiredCapacity: 1 # 초기에 생성하는 노드 갯수
+    minSize: 1 # 최소 노드 갯수
+    maxSize: 2 # 오토스케일링 시 늘어날 수 있는 최대 노드 갯수
+    ssh: # use existing EC2 key
+      allow: false # 노드에 대한 ssh 접속 차단
+    iam:
+      withAddonPolicies:
+        imageBuilder: true # AWS ECR에 대한 권한 추가
+        albIngress: true  # albIngress에 대한 권한 추가
+        cloudWatch: true # cloudWatch에 대한 권한 추가
+        autoScaler: true # auto scaling에 대한 권한 추가
+    volumeSize: 20 # 노드의 볼륨 사이즈
+
