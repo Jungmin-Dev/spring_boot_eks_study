@@ -3,6 +3,16 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Amazon EKS Sample VPC - Private and Public subnets'
 
 Parameters:
+  AmiId:
+    Description: EC2 AMI ID
+    Type: String
+    Default: ami-014009fa4a1467d53
+
+  ## PEM 키설정
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
 
   VpcBlock:
     Type: String
@@ -266,12 +276,195 @@ Resources:
       SubnetId: !Ref PrivateSubnet02
       RouteTableId: !Ref PrivateRouteTable02
 
+  #권한 설정
   ControlPlaneSecurityGroup:
+    DependsOn:
+      - EKSWorkerStationSG
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Cluster communication with worker nodes
       VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref EKSWorkerStationSG
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Control Plane Security Group
 
+  #ssh 22포트
+  EKSWorkerStationSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  #clusterworkerstation 설정
+  ClusterWorkerStation:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: EKS-Worker-Station
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet01
+          GroupSet:
+            - !Ref EKSWorkerStationSG
+          AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref EKSWorkerStationInstanceProfile
+      UserData:
+        Fn::Base64:
+          !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          curl -o kubectl https://amazon-eks.s3-us-west-2.amazonaws.com/1.21.2/2021-07-05/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          mkdir -p $HOME/bin && cp ./kubectl $HOME/bin/kubectl && export PATH=$PATH:$HOME/bin
+          echo 'export PATH=$PATH:$HOME/bin' >> ~/.bashrc
+
+  EKSWorkerStationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: eks-worker-station-instance-profile
+      Path: /
+      Roles:
+        - !Ref EKSWorkerStationInstanceRole
+  EKSWorkerStationInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: eks-worker-station-instance-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+  EKSWorkerStationInstancePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: EksctlPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - cloudformation:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - ec2:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - elasticloadbalancing:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - cloudwatch:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - autoscaling:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - eks:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource:
+              - "arn:aws:ssm:*:*:parameter/aws/*"
+              - "arn:aws:ssm:*::parameter/aws/*"
+          - Effect: Allow
+            Action:
+              - kms:CreateGrant
+              - kms:DescribeKey
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - logs:PutRetentionPolicy
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - "iam:CreateInstanceProfile"
+              - "iam:DeleteInstanceProfile"
+              - "iam:GetInstanceProfile"
+              - "iam:RemoveRoleFromInstanceProfile"
+              - "iam:GetRole"
+              - "iam:CreateRole"
+              - "iam:DeleteRole"
+              - "iam:AttachRolePolicy"
+              - "iam:PutRolePolicy"
+              - "iam:ListInstanceProfiles"
+              - "iam:AddRoleToInstanceProfile"
+              - "iam:ListInstanceProfilesForRole"
+              - "iam:PassRole"
+              - "iam:DetachRolePolicy"
+              - "iam:DeleteRolePolicy"
+              - "iam:GetRolePolicy"
+              - "iam:GetOpenIDConnectProvider"
+              - "iam:CreateOpenIDConnectProvider"
+              - "iam:DeleteOpenIDConnectProvider"
+              - "iam:ListAttachedRolePolicies"
+              - "iam:TagRole"
+            Resource:
+              - "arn:aws:iam::*:instance-profile/eksctl-*"
+              - "arn:aws:iam::*:role/eksctl-*"
+              - "arn:aws:iam::*:oidc-provider/*"
+              - "arn:aws:iam::*:role/aws-service-role/eks-nodegroup.amazonaws.com/AWSServiceRoleForAmazonEKSNodegroup"
+              - "arn:aws:iam::*:role/eksctl-managed-*"
+              - "arn:aws:iam::*:role/EKS-*"
+              - "arn:aws:iam::*:role/eks-*"
+          - Effect: Allow
+            Action:
+              - "iam:GetRole"
+            Resource:
+              - "arn:aws:iam::*:role/*"
+          - Effect: Allow
+            Action:
+              - iam:CreateServiceLinkedRole
+            Resource:
+              - "*"
+            Condition:
+              StringEquals:
+                iam:AWSServiceName:
+                  - "autoscaling.amazonaws.com"
+                  - "ec2scheduled.amazonaws.com"
+                  - "elasticloadbalancing.amazonaws.com"
+                  - "spot.amazonaws.com"
+                  - "spotfleet.amazonaws.com"
+                  - "transitgateway.amazonaws.com"
+                  - "eks.amazonaws.com"
+                  - "eks-nodegroup.amazonaws.com"
+                  - "eks-fargate.amazonaws.com"
+      Roles:
+        - !Ref EKSWorkerStationInstanceRole
 Outputs:
 
   SubnetIds:
